@@ -57,6 +57,7 @@ pip install "git+https://github.com/chaseU2/ancombc2-heatmaps.git"
 
 <img width="1565" height="1826" alt="grafik" src="https://github.com/user-attachments/assets/91e99085-4bd3-4c23-8c1b-fe6f2a6cbc63" />
 
+---
 
 <img width="1166" height="766" alt="grafik" src="https://github.com/user-attachments/assets/76a6784d-dac5-4802-821e-9a926781b104" />
 
