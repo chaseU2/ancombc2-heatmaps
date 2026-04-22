@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
 import qiime2
 from biom import Table
@@ -41,11 +41,23 @@ class TrajectoryPathConfig:
     table_base: str
     ancom_base: str
 
+    # NEW:
+    # Examples:
+    # genus_ANCOM
+    # family_ANCOM
+    # phylum_ANCOM
+    table_suffix: str = "genus_ANCOM"
+
+    # Examples:
+    # ANCOMB_exported
+    # ANCOMBC2_exported
+    ancom_export_suffix: str = "ANCOMB_exported"
+
 
 @dataclass
 class TrajectoryPlotConfig:
-    estimator: str = "mean"  # "mean" or "median"
-    error_style: str = "iqr"  # "iqr" or "ci"
+    estimator: str = "mean"       # "mean" or "median"
+    error_style: str = "iqr"      # "iqr" or "ci"
     show_individual_lines: bool = False
     merge_baselines: bool = False
     y_lim: Union[str, Tuple[float, float]] = "auto_fix"
@@ -54,7 +66,6 @@ class TrajectoryPlotConfig:
 
     figsize: Tuple[float, float] = (12, 8)
 
-    # style of comparison groups (e.g. sex)
     line_styles: Dict[str, Union[str, Tuple[int, int]]] = field(default_factory=dict)
 
     sns_style: str = "whitegrid"
@@ -85,11 +96,30 @@ RANK_TO_PREFIX = {
 }
 
 
+def read_export_tsv(tsv_fp: str) -> pd.DataFrame:
+    """
+    Robust TSV reader for exported tables.
+
+    Handles both:
+    - old files where header starts immediately
+    - newer files with one extra leading line
+
+    Also normalizes '#OTU ID' -> 'feature'
+    """
+    df = pd.read_csv(tsv_fp, sep="\t")
+
+    if "#OTU ID" not in df.columns and "feature" not in df.columns:
+        df = pd.read_csv(tsv_fp, sep="\t", skiprows=1)
+
+    df = df.rename(columns={"#OTU ID": "feature"})
+    return df
+
+
 def clean_float_formatter(x, pos):
     return f"{x:.4f}".rstrip("0").rstrip(".")
 
 
-def load_qza_table_as_df(qza_fp):
+def load_qza_table_as_df(qza_fp: str) -> pd.DataFrame:
     art = qiime2.Artifact.load(qza_fp)
     table = art.view(Table)
     df = table.to_dataframe(dense=True)
@@ -158,6 +188,14 @@ def parse_label(label):
 
 
 def normalize_query(q):
+    """
+    Accepted query styles:
+    - exact label with semicolons
+    - rank-prefixed query like:
+      g_Akkermansia
+      f_Akkermansiaceae
+      p_Verrucomicrobiota
+    """
     q = q.strip()
 
     if ";" in q:
@@ -170,7 +208,7 @@ def normalize_query(q):
             raise ValueError(f"Unsupported rank prefix: {r}")
         return {"mode": "rank", "rank": r, "value": RANK_TO_PREFIX[r] + name}
 
-    raise ValueError("Invalid taxon_query")
+    raise ValueError("Invalid taxon_query. Use e.g. 'g_Akkermansia', 'f_Akkermansiaceae', 'p_Verrucomicrobiota', or a full exact label.")
 
 
 def match_taxa(index, query):
@@ -217,6 +255,9 @@ class TaxonTrajectoryPlotter:
         self.config = config
         sns.set_theme(style=config.plot.sns_style, context=config.plot.sns_context)
 
+    # -----------------------------------------------------
+    # Metadata
+    # -----------------------------------------------------
     def load_metadata(self):
         meta = pd.read_csv(self.config.paths.metadata_path, sep="\t", dtype=str)
         meta = meta.copy()
@@ -229,6 +270,8 @@ class TaxonTrajectoryPlotter:
                 meta[col] = meta[col].astype(str).str.strip()
 
         for col, allowed in self.config.metadata.allowed_values.items():
+            if col not in meta.columns:
+                raise ValueError(f"allowed_values references unknown metadata column: {col}")
             meta = meta[meta[col].isin(allowed)].copy()
 
         return meta
@@ -262,48 +305,60 @@ class TaxonTrajectoryPlotter:
 
         raise ValueError("plot_mode must be 'full', 'partial', or 'combo'")
 
+    # -----------------------------------------------------
+    # Path builders
+    # -----------------------------------------------------
     def get_group_table_qza(self, tp, plot_mode, group=None):
+        suffix = self.config.paths.table_suffix
+
         if plot_mode == "full":
-            return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_all_genus_ANCOM.qza")
+            return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_all_{suffix}.qza")
 
         if plot_mode == "partial":
             if isinstance(group, str):
                 if group in {"WT", "Apc"}:
-                    return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_{group}_alltreat_genus_ANCOM.qza")
+                    return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_{group}_alltreat_{suffix}.qza")
                 if group in {"sham", "irradiated"}:
-                    return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_{group}_allgeno_genus_ANCOM.qza")
+                    return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_{group}_allgeno_{suffix}.qza")
 
         if plot_mode == "combo":
             geno, treat = group
-            return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_{geno}_{treat}_genus_ANCOM.qza")
+            return os.path.join(self.config.paths.table_base, tp, f"table_{tp}_{geno}_{treat}_{suffix}.qza")
 
         return None
 
     def get_ancom_export_dir(self, tp, plot_mode, group=None, variable_name="sex"):
+        suffix = self.config.paths.table_suffix
+        export_suffix = self.config.paths.ancom_export_suffix
+
         if plot_mode == "full":
-            name = f"table_{tp}_all_genus_ANCOM_{variable_name}_ANCOMB_exported"
+            name = f"table_{tp}_all_{suffix}_{variable_name}_{export_suffix}"
             p = os.path.join(self.config.paths.ancom_base, tp, name)
             return p if os.path.isdir(p) else None
 
         if plot_mode == "partial":
             if isinstance(group, str):
                 if group in {"WT", "Apc"}:
-                    name = f"table_{tp}_{group}_alltreat_genus_ANCOM_{variable_name}_ANCOMB_exported"
+                    name = f"table_{tp}_{group}_alltreat_{suffix}_{variable_name}_{export_suffix}"
                 elif group in {"sham", "irradiated"}:
-                    name = f"table_{tp}_{group}_allgeno_genus_ANCOM_{variable_name}_ANCOMB_exported"
+                    name = f"table_{tp}_{group}_allgeno_{suffix}_{variable_name}_{export_suffix}"
                 else:
                     return None
+
                 p = os.path.join(self.config.paths.ancom_base, tp, name)
                 return p if os.path.isdir(p) else None
 
         if plot_mode == "combo":
             geno, treat = group
-            name = f"table_{tp}_{geno}_{treat}_genus_ANCOM_{variable_name}_ANCOMB_exported"
+            name = f"table_{tp}_{geno}_{treat}_{suffix}_{variable_name}_{export_suffix}"
             p = os.path.join(self.config.paths.ancom_base, tp, name)
             return p if os.path.isdir(p) else None
 
         return None
 
+    # -----------------------------------------------------
+    # Data builders
+    # -----------------------------------------------------
     def build_df(self, meta, taxon_query, plot_mode, comparison_levels, group=None):
         rows = []
         meta_group = self.filter_meta_for_group(meta, plot_mode, group)
@@ -390,6 +445,9 @@ class TaxonTrajectoryPlotter:
 
         return sig_map
 
+    # -----------------------------------------------------
+    # Plot helpers
+    # -----------------------------------------------------
     def apply_baseline(self, df):
         df = df.copy()
         if self.config.plot.merge_baselines:
@@ -438,10 +496,40 @@ class TaxonTrajectoryPlotter:
 
         ymax = max(upper_bounds)
         if not np.isfinite(ymax) or ymax <= 0:
-            return (0, 1)
+            return (0, ymax * 1.03)
 
         return (0, ymax * 1.03)
 
+    def _get_visible_upper(self, g):
+        uppers = []
+
+        for _, gs in g.groupby("group"):
+            vals = pd.to_numeric(gs["abundance"], errors="coerce").dropna().to_numpy()
+            if len(vals) == 0:
+                continue
+
+            if self.config.plot.error_style == "iqr":
+                upper = np.percentile(vals, 75)
+            else:
+                rng = np.random.default_rng(42)
+                func = np.median if self.config.plot.estimator == "median" else np.mean
+                boots = []
+                for _ in range(1000):
+                    sample = rng.choice(vals, size=len(vals), replace=True)
+                    boots.append(func(sample))
+                upper = np.percentile(boots, 97.5)
+
+            center = np.median(vals) if self.config.plot.estimator == "median" else np.mean(vals)
+            uppers.append(max(center, upper))
+
+        if len(uppers) == 0:
+            return np.nan
+
+        return max(uppers)
+
+    # -----------------------------------------------------
+    # Plotting
+    # -----------------------------------------------------
     def plot_single(self, df, title, comparison_levels, sig_map=None, ylim=None):
         if df.empty:
             print(f"No data: {title}")
@@ -451,6 +539,8 @@ class TaxonTrajectoryPlotter:
 
         fig, ax = plt.subplots(figsize=self.config.plot.figsize)
 
+        dashes = self.config.plot.line_styles if self.config.plot.line_styles else True
+
         if self.config.plot.show_individual_lines:
             sns.lineplot(
                 data=df,
@@ -458,7 +548,7 @@ class TaxonTrajectoryPlotter:
                 y="abundance",
                 hue="group",
                 style="group",
-                dashes=self.config.plot.line_styles if self.config.plot.line_styles else True,
+                dashes=dashes,
                 units="mouse",
                 estimator=None,
                 alpha=0.35,
@@ -475,7 +565,7 @@ class TaxonTrajectoryPlotter:
             y="abundance",
             hue="group",
             style="group",
-            dashes=self.config.plot.line_styles if self.config.plot.line_styles else True,
+            dashes=dashes,
             estimator=self.config.plot.estimator,
             errorbar=error_setting,
             marker="o",
@@ -510,20 +600,10 @@ class TaxonTrajectoryPlotter:
 
             for tp_plot in sorted(df["tp_plot"].dropna().unique()):
                 g = df[df["tp_plot"] == tp_plot]
-                vals = pd.to_numeric(g["abundance"], errors="coerce").dropna().to_numpy()
-                if len(vals) == 0:
-                    continue
 
-                if self.config.plot.error_style == "iqr":
-                    visible_upper = np.percentile(vals, 75)
-                else:
-                    rng = np.random.default_rng(42)
-                    func = np.median if self.config.plot.estimator == "median" else np.mean
-                    boots = []
-                    for _ in range(1000):
-                        sample = rng.choice(vals, size=len(vals), replace=True)
-                        boots.append(func(sample))
-                    visible_upper = np.percentile(boots, 97.5)
+                visible_upper = self._get_visible_upper(g)
+                if pd.isna(visible_upper):
+                    continue
 
                 original_tps = sorted(pd.to_numeric(g["tp"], errors="coerce").dropna().unique())
 
@@ -533,7 +613,10 @@ class TaxonTrajectoryPlotter:
                     is_sig = any(sig_map.get(int(tp_num), False) for tp_num in original_tps)
 
                 label = sig_to_label(is_sig)
-                y = min(visible_upper + offset, y1 - y_range * 0.03)
+
+                y = visible_upper + offset
+                y = min(y, y1 - y_range * 0.03)
+
                 ax.text(tp_plot, y, label, ha="center", va="bottom", fontsize=11)
 
         handles, labels = ax.get_legend_handles_labels()
@@ -569,6 +652,9 @@ class TaxonTrajectoryPlotter:
         plt.tight_layout()
         plt.show()
 
+    # -----------------------------------------------------
+    # Main public API
+    # -----------------------------------------------------
     def plot_taxon(
         self,
         taxon_query,
@@ -627,3 +713,56 @@ class TaxonTrajectoryPlotter:
 
         for df, title, sig_map in jobs:
             self.plot_single(df, title, comparison_levels=comparison_levels, sig_map=sig_map, ylim=ylim)
+
+    # -----------------------------------------------------
+    # Optional convenience helper
+    # -----------------------------------------------------
+    def list_available_queries(self, qza_fp: str) -> Dict[str, List[str]]:
+        """
+        Returns available query strings like:
+        - f_Akkermansiaceae
+        - p_Verrucomicrobiota
+        - g_Akkermansia
+        """
+        df = load_qza_table_as_df(qza_fp)
+        taxa = [normalize_taxon_label(x) for x in df.index]
+
+        families = set()
+        phyla = set()
+        genera = set()
+
+        for t in taxa:
+            parts = [p.strip() for p in str(t).split(";")]
+
+            top = parts[0] if len(parts) > 0 else "_"
+            family = parts[1] if len(parts) > 1 else "_"
+            genus = parts[2] if len(parts) > 2 else "_"
+
+            if family.startswith("f__"):
+                name = re.sub(r"^f__", "", family)
+                if name and name.lower() not in {"uncultured", "unclassified", "unknown", "ambiguous_taxa", "_"}:
+                    families.add(f"f_{name}")
+
+            if genus.startswith("g__"):
+                name = re.sub(r"^g__", "", genus)
+                if name and name.lower() not in {"uncultured", "unclassified", "unknown", "ambiguous_taxa", "_"}:
+                    genera.add(f"g_{name}")
+
+            for pref, out_set, prefix_out in [
+                ("p__", phyla, "p_"),
+                ("c__", set(), "c_"),
+                ("o__", set(), "o_"),
+                ("k__", set(), "k_"),
+                ("d__", set(), "d_"),
+            ]:
+                if top.startswith(pref):
+                    name = re.sub(rf"^{pref}", "", top)
+                    if name and name.lower() not in {"uncultured", "unclassified", "unknown", "ambiguous_taxa", "_"}:
+                        if pref == "p__":
+                            out_set.add(f"{prefix_out}{name}")
+
+        return {
+            "family_queries": sorted(families),
+            "phylum_queries": sorted(phyla),
+            "genus_queries": sorted(genera),
+        }

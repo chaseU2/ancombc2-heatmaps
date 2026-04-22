@@ -6,10 +6,10 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib as mpl
 import seaborn as sns
 import qiime2
 from biom import Table
@@ -73,19 +73,10 @@ class MetadataConfig:
 
 @dataclass
 class ComparisonConfig:
-    # Name of ANCOM variable, e.g. "sex", "treatment", "genotype"
     variable_name: str
-
-    # Positive class should be red in the heatmap
     positive_class: str
-
-    # Optional explicit negative class label
     negative_class: Optional[str] = None
-
-    # Optional explicit effect column, e.g. "sex::female"
     effect_column: Optional[str] = None
-
-    # Optional explicit sign inversion
     invert_sign: Optional[bool] = None
 
 
@@ -96,7 +87,6 @@ class PathConfig:
     metadata_path: str
     output_dir: str
 
-    # Placeholders: {timepoint}, {subset_label}
     table_template: str = "{timepoint}/table_{timepoint}_{subset_label}.qza"
     ancom_template: str = "{timepoint}/table_{timepoint}_{subset_label}_ANCOMB_exported"
 
@@ -156,7 +146,7 @@ class HeatmapConfig:
 
 
 # =========================================================
-# HELPER FUNCTIONS
+# HELPERS
 # =========================================================
 
 def read_table_auto(filepath: str) -> pd.DataFrame:
@@ -165,6 +155,24 @@ def read_table_auto(filepath: str) -> pd.DataFrame:
     if filepath.endswith(".csv"):
         return pd.read_csv(filepath)
     return pd.read_csv(filepath, sep="\t")
+
+
+def read_export_tsv(tsv_fp: str) -> pd.DataFrame:
+    """
+    Robust reader for exported TSV files.
+    Handles both:
+    - old style: header directly in first row
+    - new style: one extra leading line before real header
+
+    Also normalizes '#OTU ID' -> 'feature'
+    """
+    df = pd.read_csv(tsv_fp, sep="\t")
+
+    if "#OTU ID" not in df.columns and "feature" not in df.columns:
+        df = pd.read_csv(tsv_fp, sep="\t", skiprows=1)
+
+    df = df.rename(columns={"#OTU ID": "feature"})
+    return df
 
 
 def load_qza_table_as_df(qza_fp: str) -> pd.DataFrame:
@@ -195,10 +203,6 @@ def is_empty_tax(x) -> bool:
 
 
 def default_normalize_taxon_label(raw_tax) -> str:
-    """
-    Returns:
-    top_available_rank (order/class/phylum/kingdom/domain); family; genus
-    """
     if raw_tax is None:
         return "_; _; _"
 
