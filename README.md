@@ -1,97 +1,195 @@
-# ANCOM-BC2 Heatmap Plotter
+# ANCOM-BC2 Heatmap & Trajectory Plotter
 
-Reusable Python package for generating **ANCOM-BC2 log fold change heatmaps** across timepoints.
+A reusable Python package to visualize **ANCOM-BC2 results** and **taxon trajectories** from microbiome time-series data.
 
-This tool was developed for microbiome time-series analyses (e.g. 16S data) and is designed to be **flexible, reusable, and easy to adapt to new datasets**.
+Designed for flexible workflows in QIIME2-based analyses.
 
 ---
 
 ## ✨ Features
 
-* Plot ANCOM-BC2 log fold change heatmaps across multiple timepoints
-* Supports **any comparison variable** (e.g. sex, treatment, genotype)
-* Flexible **subset selection** (e.g. WT vs Apc, sham vs irradiated, combinations)
-* Optional **cell annotations**:
+### 📊 Heatmaps
 
-  * mean relative abundance
+* ANCOM-BC2 log fold change heatmaps
+* Multiple timepoints
+* Flexible grouping (genotype, treatment, sex, etc.)
+* Optional cell annotations:
+
+  * relative abundance
   * log fold change
   * none
-* **Dynamic row heights** based on abundance
-* Automatic handling of:
+* Dynamic row heights based on abundance
+* Automatic significance filtering
 
-  * taxonomy labels
-  * significance filtering
-  * effect direction (positive vs negative group)
+### 📈 Trajectory Plots
+
+* Time-series plots for individual taxa
+* Supports any grouping variable (e.g. sex, treatment)
+* Mean or median trajectories
+* Error bars:
+
+  * IQR
+  * bootstrap CI
+* Optional individual sample trajectories
+* ANCOM significance overlay
+
+### 🔁 Workflow Integration
+
+* Unified interface to combine:
+
+  * heatmaps → overview
+  * trajectory plots → detailed view
+* Minimal notebook code required
 
 ---
 
 ## 📦 Installation
 
-Clone the repository and install in editable mode:
+Install directly from GitHub:
 
 ```bash
-git clone https://github.com/chaseU2/ancombc2-heatmaps.git
-cd ancombc2-heatmaps
-pip install -e .
+pip install "git+https://github.com/chaseU2/ancombc2-heatmaps.git"
 ```
 
 ---
 
 ## 🚀 Quick Start
 
+### 1. Import
+
 ```python
 from ancombc2_heatmaps import (
-    ANCOMBC2HeatmapPlotter,
+    PlotWorkflow,
     HeatmapConfig,
     MetadataConfig,
     ComparisonConfig,
     PathConfig,
-    SubsetSpec
+    SubsetSpec,
+    TrajectoryConfig,
+    TrajectoryMetadataConfig,
+    TrajectoryPathConfig,
+    TrajectoryPlotConfig,
 )
+```
 
-config = HeatmapConfig(
+---
+
+### 2. Create Configs
+
+#### Heatmap
+
+```python
+heatmap_config = HeatmapConfig(
     metadata=MetadataConfig(
         sample_col="sample_name",
         timepoint_col="time_point",
         comparison_col="sex",
-        timepoints=["baseline1", "baseline2", "baseline3", "day1", "day3", "day7", "day14"]
+        timepoints=[...],
+        timepoint_map={...},
     ),
     comparison=ComparisonConfig(
         variable_name="sex",
         positive_class="male",
-        negative_class="female"
+        negative_class="female",
     ),
     paths=PathConfig(
-        base_table_dir="/path/to/qza_tables",
-        base_ancom_dir="/path/to/ancom_exports",
-        metadata_path="/path/to/metadata.tsv",
-        output_dir="/path/to/output"
-    )
+        base_table_dir="...",
+        base_ancom_dir="...",
+        metadata_path="...",
+        output_dir="...",
+    ),
 )
+```
 
+#### Trajectory
+
+```python
+traj_config = TrajectoryConfig(
+    metadata=TrajectoryMetadataConfig(
+        sample_col="sample_name",
+        timepoint_col="time_point",
+        mouse_col="host_subject_id",
+        comparison_col="sex",
+        timepoint_order=[...],
+        timepoint_numeric_map={...},
+        timepoint_label_map={...},
+    ),
+    paths=TrajectoryPathConfig(
+        metadata_path="...",
+        table_base="...",
+        ancom_base="...",
+    ),
+)
+```
+
+---
+
+### 3. Create Workflow
+
+```python
+workflow = PlotWorkflow(
+    heatmap_config=heatmap_config,
+    trajectory_config=traj_config,
+)
+```
+
+---
+
+## 📊 Example Usage
+
+### Heatmap
+
+```python
 subset = SubsetSpec(
-    label="all_genus_ANCOM",
-    title="all samples",
-    filters={}
+    label="WT_sham_genus_ANCOM",
+    title="WT | sham",
+    filters={
+        "mice_model": "WT",
+        "description_of_treatment": "sham",
+    }
 )
 
-plotter = ANCOMBC2HeatmapPlotter(config)
-meta = plotter.load_metadata()
+workflow.plot_heatmap(subset, show=True)
+```
 
-plotter.plot_subset(meta, subset)
+---
+
+### Trajectory Plot
+
+```python
+workflow.plot_trajectory(
+    taxon_query="g_Akkermansia",
+    plot_mode="combo",
+    comparison_levels=["female", "male"],
+    combo_groups=[("WT", "sham")],
+)
+```
+
+---
+
+### Combined Workflow
+
+```python
+workflow.plot_heatmap_and_trajectory(
+    subset=subset,
+    taxon_query="g_Akkermansia",
+    trajectory_plot_mode="combo",
+    comparison_levels=["female", "male"],
+    combo_groups=[("WT", "sham")],
+)
 ```
 
 ---
 
 ## 📁 Expected Data Structure
 
-### QIIME2 tables
+### QIIME2 Tables
 
 ```
 {timepoint}/table_{timepoint}_{subset_label}.qza
 ```
 
-### ANCOM-BC2 exports
+### ANCOM-BC2 Exports
 
 ```
 {timepoint}/table_{timepoint}_{subset_label}_<variable>_ANCOMB_exported/
@@ -100,113 +198,43 @@ plotter.plot_subset(meta, subset)
     └── diff.jsonl
 ```
 
-Example:
-
-```
-day7/table_day7_WT_sham_genus_ANCOM.qza
-day7/table_day7_WT_sham_genus_ANCOM_sex_ANCOMB_exported/
-```
-
 ---
 
-## 🔧 Configuration Overview
+## ⚙️ Customization
 
-### MetadataConfig
-
-Defines how metadata is interpreted:
-
-* `sample_col` → sample IDs
-* `timepoint_col` → timepoint column
-* `comparison_col` → grouping variable
-* `timepoints` → order of timepoints
-* `timepoint_map` → optional mapping of names
-
----
-
-### ComparisonConfig
-
-Defines the ANCOM comparison:
-
-* `variable_name` → name used in ANCOM (e.g. "sex")
-* `positive_class` → shown in **red**
-* `negative_class` → shown in **blue**
-
----
-
-### PathConfig
-
-Defines file structure:
-
-* `base_table_dir` → QZA tables
-* `base_ancom_dir` → ANCOM outputs
-* `metadata_path` → metadata file
-* `output_dir` → plot output
-
----
-
-### SubsetSpec
-
-Defines subsets of your data:
+### Heatmap cell text
 
 ```python
-SubsetSpec(
-    label="WT_sham_genus_ANCOM",
-    title="WT | sham",
-    filters={
-        "mice_model": "WT",
-        "description_of_treatment": "sham"
-    }
-)
+heatmap_config.cell_text_mode = "relative_abundance"
+heatmap_config.cell_text_mode = "lfc"
+heatmap_config.cell_text_mode = "none"
 ```
 
----
-
-## 📊 Multiple Plots
+### Trajectory options
 
 ```python
-subsets = [
-    SubsetSpec(label="WT_sham_genus_ANCOM", title="WT | sham", filters={...}),
-    SubsetSpec(label="WT_irradiated_genus_ANCOM", title="WT | irradiated", filters={...}),
-]
-
-plotter.plot_all_subsets(subsets)
+traj_config.plot.estimator = "median"
+traj_config.plot.error_style = "ci"
+traj_config.plot.show_individual_lines = False
 ```
 
 ---
 
-## 🎨 Customization
+## 🧠 Typical Workflow
 
-### Cell annotations
-
-```python
-config.cell_text_mode = "relative_abundance"  # default
-config.cell_text_mode = "lfc"
-config.cell_text_mode = "none"
-```
+1. Run ANCOM-BC2 in QIIME2
+2. Export results
+3. Generate heatmaps
+4. Select taxa of interest
+5. Generate trajectory plots
 
 ---
 
-### Highlight taxa
+## ⚠️ Notes
 
-```python
-config.style.highlight_taxa = ["Akkermansia", "Alistipes"]
-```
-
----
-
-### Significance filtering
-
-```python
-config.min_sig_cells_per_taxon = 2
-```
-
----
-
-## ⚠️ Important Notes
-
-* `subset.label` **must match your file names**
-* Metadata sample IDs must match QZA table sample IDs
-* ANCOM output must contain:
+* `subset.label` must match your file naming
+* metadata sample IDs must match QZA tables
+* ANCOM export must contain:
 
   * `lfc.jsonl`
   * `q.jsonl`
@@ -214,27 +242,12 @@ config.min_sig_cells_per_taxon = 2
 
 ---
 
-## 🧪 Typical Workflow
-
-1. Run ANCOM-BC2 in QIIME2
-2. Export results
-3. Define config + subsets
-4. Generate heatmaps
-
----
-
 ## 📌 Use Cases
 
-* Microbiome time series analysis
-* Genotype vs treatment comparisons
-* Sex-specific microbiome effects
-* Longitudinal intervention studies
-
----
-
-## 📄 License
-
-Add your preferred license here (e.g. MIT).
+* Microbiome time-series analysis
+* Treatment vs control comparisons
+* Genotype-dependent effects
+* Sex-specific microbiome dynamics
 
 ---
 
