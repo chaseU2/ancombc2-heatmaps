@@ -26,6 +26,11 @@ Designed for flexible workflows in **QIIME2-based longitudinal microbiome analys
 
 ---
 
+<img width="1735" height="870" alt="grafik" src="https://github.com/user-attachments/assets/474d49aa-2b39-4143-aa7d-5f68f42b687e" />
+
+
+---
+
 ### 📈 Trajectory Plots
 
 - Time-series plots for individual taxa
@@ -38,6 +43,12 @@ Designed for flexible workflows in **QIIME2-based longitudinal microbiome analys
   - bootstrap CI
 - Optional individual sample trajectories
 - ANCOM significance overlay
+
+
+---
+
+<img width="1166" height="766" alt="grafik" src="https://github.com/user-attachments/assets/acd08698-38da-488f-ad63-b444411231d2" />
+
 
 ---
 
