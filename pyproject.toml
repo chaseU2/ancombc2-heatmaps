@@ -1,21 +1,21 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ancombc2-heatmaps"
 version = "0.1.0"
 description = "Reusable plotting utilities for ANCOM-BC2 log fold change heatmaps"
-authors = [
-  { name = "Your Name" }
-]
 readme = "README.md"
 requires-python = ">=3.9"
+authors = [
+  { name = "Karl Balzer" }
+]
 dependencies = [
   "numpy",
   "pandas",
   "matplotlib",
-  "seaborn",
+  "seaborn"
 ]
 
 [tool.setuptools.packages.find]
