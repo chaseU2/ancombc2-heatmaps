@@ -9,3 +9,13 @@ from .plotter import (
     TaxonomyConfig,
     SubsetSpec,
 )
+
+from .trajectory_plotter import (
+    TaxonTrajectoryPlotter,
+    TrajectoryConfig,
+    TrajectoryMetadataConfig,
+    TrajectoryPathConfig,
+    TrajectoryPlotConfig,
+)
+
+from .workflows import PlotWorkflow
