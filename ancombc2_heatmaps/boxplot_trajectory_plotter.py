@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -8,33 +8,20 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
+from .plotter import SubsetSpec
 from .trajectory_plotter import (
     TaxonTrajectoryPlotter,
-    TrajectoryConfig,
     sig_to_label,
     clean_float_formatter,
 )
 
 
 class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
-    """
-    Boxplot-based trajectory plotter.
-
-    Uses the same config, metadata loading, taxon matching,
-    table loading and ANCOM significance logic as TaxonTrajectoryPlotter.
-
-    Instead of connected mean/median lines, this plot shows:
-    - per timepoint and group: boxplots
-    - all individual sample points
-    - optional smooth trend line per group
-    - optional ANCOM significance labels
-    """
-
     def plot_single_boxplot(
         self,
         df: pd.DataFrame,
         title: str,
-        comparison_levels: List[str],
+        comparison_levels: Sequence[str],
         sig_map: Optional[dict] = None,
         ylim=None,
         show_trend: bool = True,
@@ -59,13 +46,10 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
         palette = dict(
             zip(
                 comparison_levels,
-                sns.color_palette(n_colors=len(comparison_levels))
+                sns.color_palette(n_colors=len(comparison_levels)),
             )
         )
 
-        # -------------------------------------------------
-        # Boxplots
-        # -------------------------------------------------
         sns.boxplot(
             data=df,
             x="tp_plot",
@@ -80,9 +64,6 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
             ax=ax,
         )
 
-        # -------------------------------------------------
-        # Sample points
-        # -------------------------------------------------
         sns.stripplot(
             data=df,
             x="tp_plot",
@@ -99,20 +80,18 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
             ax=ax,
         )
 
-        # -------------------------------------------------
-        # Smooth approximate trend line per group
-        # -------------------------------------------------
+        tp_vals = sorted(df["tp_plot"].dropna().unique())
+        x_positions = {tp: i for i, tp in enumerate(tp_vals)}
+
         if show_trend:
             grouped = (
                 df.groupby(["tp_plot", "group"], as_index=False)["abundance"]
                 .median()
             )
 
-            tp_sorted = sorted(df["tp_plot"].unique())
-            x_positions = {tp: i for i, tp in enumerate(tp_sorted)}
-
             for group in comparison_levels:
                 g = grouped[grouped["group"] == group].copy()
+
                 if g.empty:
                     continue
 
@@ -152,15 +131,11 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
                         label=f"{group} trend",
                     )
 
-        # -------------------------------------------------
-        # Axis labels and title
-        # -------------------------------------------------
         ax.set_title(f"{title}\n(boxplots + sample points + approximate trend)", pad=15)
         ax.set_ylabel(self.config.plot.y_label)
         ax.set_xlabel("")
         ax.yaxis.set_major_formatter(FuncFormatter(clean_float_formatter))
 
-        tp_vals = sorted(df["tp_plot"].dropna().unique())
         tp_labels = [
             self.config.metadata.timepoint_label_map.get(tp, str(tp))
             for tp in tp_vals
@@ -174,9 +149,6 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
         elif isinstance(self.config.plot.y_lim, tuple):
             ax.set_ylim(self.config.plot.y_lim)
 
-        # -------------------------------------------------
-        # Significance labels
-        # -------------------------------------------------
         if self.config.plot.show_significance and sig_map is not None:
             y0, y1 = ax.get_ylim()
             y_range = y1 - y0
@@ -184,6 +156,7 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
 
             for i, tp_plot in enumerate(tp_vals):
                 g = df[df["tp_plot"] == tp_plot]
+
                 if g.empty:
                     continue
 
@@ -197,22 +170,18 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
                 else:
                     is_sig = any(sig_map.get(int(tp_num), False) for tp_num in original_tps)
 
-                label = sig_to_label(is_sig)
                 y = min(visible_upper + offset, y1 - y_range * 0.03)
 
                 ax.text(
                     i,
                     y,
-                    label,
+                    sig_to_label(is_sig),
                     ha="center",
                     va="bottom",
                     fontsize=11,
                     color="black",
                 )
 
-        # -------------------------------------------------
-        # Clean legend duplicates
-        # -------------------------------------------------
         handles, labels = ax.get_legend_handles_labels()
 
         clean_handles = []
@@ -220,7 +189,7 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
         seen = set()
 
         for h, l in zip(handles, labels):
-            if l not in seen and not l.endswith("trend"):
+            if l not in seen and not str(l).endswith("trend"):
                 clean_handles.append(h)
                 clean_labels.append(l)
                 seen.add(l)
@@ -239,11 +208,9 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
 
     def plot_taxon_boxplot(
         self,
-        taxon_query,
-        plot_mode="full",
-        comparison_levels=None,
-        partial_groups=None,
-        combo_groups=None,
+        taxon_query: str,
+        subset: SubsetSpec,
+        comparison_levels: Optional[Sequence[str]] = None,
         show_trend: bool = True,
         trend_order: int = 2,
     ):
@@ -254,84 +221,27 @@ class TaxonBoxplotTrajectoryPlotter(TaxonTrajectoryPlotter):
                 meta[self.config.metadata.comparison_col].dropna().unique()
             )
 
-        if partial_groups is None:
-            partial_groups = []
-
-        if combo_groups is None:
-            combo_groups = []
-
-        jobs = []
-
-        if plot_mode == "full":
-            df = self.build_df(
-                meta,
-                taxon_query,
-                plot_mode="full",
-                comparison_levels=comparison_levels,
-            )
-
-            sig_map = self.build_ancom_significance_map(
-                taxon_query,
-                plot_mode="full",
-                variable_name=self.config.metadata.comparison_col,
-            )
-
-            jobs.append((df, f"{taxon_query} — all samples", sig_map))
-
-        elif plot_mode == "partial":
-            for group in partial_groups:
-                df = self.build_df(
-                    meta,
-                    taxon_query,
-                    plot_mode="partial",
-                    group=group,
-                    comparison_levels=comparison_levels,
-                )
-
-                sig_map = self.build_ancom_significance_map(
-                    taxon_query,
-                    plot_mode="partial",
-                    variable_name=self.config.metadata.comparison_col,
-                    group=group,
-                )
-
-                jobs.append((df, f"{taxon_query} — {group}", sig_map))
-
-        elif plot_mode == "combo":
-            for group in combo_groups:
-                df = self.build_df(
-                    meta,
-                    taxon_query,
-                    plot_mode="combo",
-                    group=group,
-                    comparison_levels=comparison_levels,
-                )
-
-                sig_map = self.build_ancom_significance_map(
-                    taxon_query,
-                    plot_mode="combo",
-                    variable_name=self.config.metadata.comparison_col,
-                    group=group,
-                )
-
-                jobs.append((df, f"{taxon_query} — {group[0]} | {group[1]}", sig_map))
-
-        else:
-            raise ValueError("plot_mode must be 'full', 'partial', or 'combo'")
-
-        ylim = (
-            self.compute_global_ylim([j[0] for j in jobs])
-            if self.config.plot.y_lim == "auto_fix"
-            else None
+        df = self.build_df(
+            meta=meta,
+            taxon_query=taxon_query,
+            subset=subset,
+            comparison_levels=comparison_levels,
         )
 
-        for df, title, sig_map in jobs:
-            self.plot_single_boxplot(
-                df=df,
-                title=title,
-                comparison_levels=comparison_levels,
-                sig_map=sig_map,
-                ylim=ylim,
-                show_trend=show_trend,
-                trend_order=trend_order,
-            )
+        sig_map = self.build_ancom_significance_map(
+            taxon_query=taxon_query,
+            subset=subset,
+            variable_name=self.config.metadata.comparison_col,
+        )
+
+        ylim = self.compute_global_ylim([df]) if self.config.plot.y_lim == "auto_fix" else None
+
+        self.plot_single_boxplot(
+            df=df,
+            title=f"{taxon_query} — {subset.title}",
+            comparison_levels=comparison_levels,
+            sig_map=sig_map,
+            ylim=ylim,
+            show_trend=show_trend,
+            trend_order=trend_order,
+        )

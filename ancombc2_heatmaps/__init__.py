@@ -18,6 +18,6 @@ from .trajectory_plotter import (
     TrajectoryPlotConfig,
 )
 
-from .workflows import PlotWorkflow
-
 from .boxplot_trajectory_plotter import TaxonBoxplotTrajectoryPlotter
+
+from .workflows import PlotWorkflow
