@@ -19,3 +19,5 @@ from .trajectory_plotter import (
 )
 
 from .workflows import PlotWorkflow
+
+from .boxplot_trajectory_plotter import TaxonBoxplotTrajectoryPlotter

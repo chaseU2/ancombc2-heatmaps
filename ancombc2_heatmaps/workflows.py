@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from .plotter import ANCOMBC2HeatmapPlotter
 from .trajectory_plotter import TaxonTrajectoryPlotter
-
+from .boxplot_trajectory_plotter import TaxonBoxplotTrajectoryPlotter
 
 @dataclass
 class PlotWorkflow:
@@ -14,6 +14,8 @@ class PlotWorkflow:
 
         self.heatmap_meta = self.heatmap_plotter.load_metadata()
         self.trajectory_meta = self.trajectory_plotter.load_metadata()
+
+        self.boxplot_trajectory_plotter = TaxonBoxplotTrajectoryPlotter(self.trajectory_config)
 
     def plot_heatmap(self, subset, **kwargs):
         return self.heatmap_plotter.plot_subset(
@@ -60,4 +62,24 @@ class PlotWorkflow:
             comparison_levels=comparison_levels,
             partial_groups=partial_groups,
             combo_groups=combo_groups,
+        )
+        
+    def plot_boxplot_trajectory(
+        self,
+        taxon_query,
+        plot_mode="full",
+        comparison_levels=None,
+        partial_groups=None,
+        combo_groups=None,
+        show_trend=True,
+        trend_order=2,
+    ):
+        return self.boxplot_trajectory_plotter.plot_taxon_boxplot(
+            taxon_query=taxon_query,
+            plot_mode=plot_mode,
+            comparison_levels=comparison_levels,
+            partial_groups=partial_groups,
+            combo_groups=combo_groups,
+            show_trend=show_trend,
+            trend_order=trend_order,
         )
